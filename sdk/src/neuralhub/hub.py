@@ -65,7 +65,7 @@ class HubClient:
             and time.time() - float(cached["saved_at"]) < self.ttl
         ):
             return cached["document"]
-        headers = {"Accept": "application/json", "User-Agent": "neuralhub-sdk/0.2.0"}
+        headers = {"Accept": "application/json", "User-Agent": "neuralhub-sdk/0.3.0"}
         if cached and cached.get("etag"):
             headers["If-None-Match"] = cached["etag"]
         for attempt in range(self.retries + 1):
@@ -133,7 +133,7 @@ class HubClient:
     def validate(document, repo, revision):
         if (
             not isinstance(document, dict)
-            or document.get("format") != "neuralhub/v1"
+            or document.get("format") not in ("neuralhub/v1", "neuralhub/evidence-v1")
             or document.get("id") != repo
         ):
             raise HubError("Invalid NeuralHub recipe")
