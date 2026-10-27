@@ -7,6 +7,8 @@ The application, authentication configuration and deployment code are not part o
 this repository. Notebooks fetch public neuron recipes from the Hub at a pinned
 recipe revision. Model weights are downloaded only when you run the experiment.
 
+[Open the Unauthorized Frame example in Colab](https://colab.research.google.com/github/walnut-computing/neuralhub-notebooks/blob/main/notebooks/atlas/qwen35-unofficial/r1.ipynb)
+
 ## Run
 
 Open a notebook under `notebooks/<owner>/<neuron>/r<revision>.ipynb` in Colab.
