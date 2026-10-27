@@ -175,3 +175,37 @@ class EvidenceExperimentTest(unittest.TestCase):
             self.assertEqual(prepared['format'], 'neuralhub/v1')
             self.assertEqual(prepared['sourceEvidence'], evidence)
             self.assertEqual(prepared['positions'][0]['strength'], 1.5)
+
+
+class ChatPlaygroundTest(unittest.TestCase):
+    def test_chat_reuses_model_and_steers_every_turn_with_history(self):
+        import gradio as gr
+        from neuralhub.launch import playground
+        from neuralhub import Neuron
+        ns = ExperimentTest().namespace()
+        ns.update(DEVICE='cpu', MODEL_REVISION='a' * 40)
+        events = []
+        fake = ExperimentTest().fake_model(events)
+        with patch.object(ns['Neuron'], 'from_hub', return_value=Neuron(DOCUMENT)), \
+             patch.object(ns['Model'], 'from_neuron', return_value=fake) as load, \
+             patch.object(gr.Blocks, 'launch'):
+            exec(compile(playground(), '<playground>', 'exec'), ns)
+            chat = ns['chat']
+            self.assertEqual(chat('Hello', [], 1, 0.7, 512), 'text')
+            chat('Again', [{'role': 'user', 'content': [{'type': 'text', 'text': 'Hello'}]},
+                           {'role': 'assistant', 'content': 'text'}], -1, 0, 256)
+        load.assert_called_once()
+        self.assertEqual([event[0] for event in events], ['enter', 'generate', 'exit'] * 2)
+        self.assertEqual(events[3][1].document['positions'][0]['strength'], -1.5)
+        self.assertEqual(events[4][1], [{'role': 'user', 'content': 'Hello'},
+                                      {'role': 'assistant', 'content': 'text'},
+                                      {'role': 'user', 'content': 'Again'}])
+        self.assertFalse(events[4][2]['enable_thinking'])
+        self.assertFalse(events[4][2]['do_sample'])
+        self.assertNotIn('temperature', events[4][2])
+        self.assertEqual(events[4][2]['max_new_tokens'], 256)
+        with patch.object(fake, 'generate', side_effect=ValueError('Conversation is too long')):
+            with self.assertRaises(gr.Error): chat('fail', [], 1, 0.7, 512)
+        self.assertEqual(events[-1], ('exit',))
+        self.assertTrue(ns['generation_lock'].acquire(blocking=False))
+        ns['generation_lock'].release()

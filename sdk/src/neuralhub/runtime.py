@@ -306,19 +306,29 @@ class Model:
             raise ValueError("Recipe and loaded model repositories differ")
         return steer(self.model, neuron, **kwargs)
 
-    def generate(self, prompt, *, max_new_tokens=128, **kwargs):
+    def generate(self, prompt, *, max_new_tokens=128, enable_thinking=None,
+                 max_input_tokens=None, **kwargs):
         import torch
 
-        text = (
-            self.tokenizer.apply_chat_template(
-                [{"role": "user", "content": prompt}],
-                tokenize=False,
-                add_generation_prompt=True,
+        messages = [{"role": "user", "content": prompt}] if isinstance(prompt, str) else prompt
+        if not isinstance(messages, list) or not messages:
+            raise ValueError("Provide a prompt string or a nonempty message list")
+        if any(not isinstance(m, dict) or m.get("role") not in ("system", "user", "assistant")
+               or not isinstance(m.get("content"), str) for m in messages):
+            raise ValueError("Messages must have a system/user/assistant role and text content")
+        template_options = {} if enable_thinking is None else {"enable_thinking": enable_thinking}
+        if self.tokenizer.chat_template:
+            text = self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True, **template_options
             )
-            if self.tokenizer.chat_template
-            else prompt
-        )
+        elif isinstance(prompt, str):
+            text = prompt
+        else:
+            text = "\n".join(f"{m['role']}: {m['content']}" for m in messages) + "\nassistant:"
+
         inputs = self.tokenizer(text, return_tensors="pt", add_special_tokens=False)
+        if max_input_tokens is not None and inputs["input_ids"].shape[-1] > max_input_tokens:
+            raise ValueError("Conversation is too long. Start a new chat or shorten your message.")
         inputs = inputs.to(self.model.get_input_embeddings().weight.device)
         with torch.inference_mode():
             output = self.model.generate(

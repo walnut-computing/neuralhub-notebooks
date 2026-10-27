@@ -44,7 +44,9 @@ ALLOW_APPROXIMATE = {settings['approximate']!r}  # Uses the listed approximate c
 DEVICE = "auto"  # CUDA GPU; set "cpu" explicitly for slow local CPU execution.
 DTYPE = "auto"   # Native BF16 on supported GPUs, FP16 on T4, FP32 on CPU.
 PROMPT = "Tell me a short story."
-MAX_NEW_TOKENS = 128
+MAX_NEW_TOKENS = 512
+ENABLE_THINKING = False
+MAX_INPUT_TOKENS = 4096  # Start a new chat when this limit is reached.
 
 
 def runtime_settings():
@@ -67,7 +69,7 @@ def runtime_settings():
     return device, dtype
 
 
-def compare():
+def load_experiment():
     import math
     import re
     from huggingface_hub import model_info
@@ -109,13 +111,78 @@ def compare():
     if ALLOW_APPROXIMATE:
         print("Approximate coordinates are enabled and will be used as listed.")
     model = Model.from_neuron(neuron, model_revision=MODEL_REVISION, device=device, dtype=dtype, attn_implementation="sdpa")
-    baseline = model.generate(PROMPT, do_sample=False, max_new_tokens=MAX_NEW_TOKENS)
+    return neuron, model
+
+
+def compare():
+    neuron, model = load_experiment()
+    options = dict(do_sample=False, max_new_tokens=MAX_NEW_TOKENS, enable_thinking=ENABLE_THINKING)
+    baseline = model.generate(PROMPT, **options)
     with model.steer(neuron, operation=OPERATION,
                      strength=None if STRENGTH == "per_coordinate" else STRENGTH,
                      allow_approximate=ALLOW_APPROXIMATE):
-        steered = model.generate(PROMPT, do_sample=False, max_new_tokens=MAX_NEW_TOKENS)
+        steered = model.generate(PROMPT, **options)
     print("BASELINE\\n" + baseline + "\\n\\nSTEERED\\n" + steered)
     return {{"baseline": baseline, "steered": steered, "model_revision": MODEL_REVISION}}
+
+'''
+
+
+def playground():
+    return '''import gradio as gr
+from threading import Lock
+
+# Run this cell once. The same model is reused for every chat turn.
+neuron, model = load_experiment()
+generation_lock = Lock()
+
+
+def chat(message, history, strength_multiplier, temperature, max_tokens):
+    messages = []
+    for turn in history:
+        content = turn["content"]
+        if isinstance(content, list):
+            content = "".join(block.get("text", "") for block in content
+                              if isinstance(block, dict) and block.get("type") == "text")
+        if turn["role"] in ("user", "assistant") and isinstance(content, str):
+            messages.append({"role": turn["role"], "content": content})
+    messages.append({"role": "user", "content": message})
+    doses = COORDINATE_STRENGTHS if STRENGTH == "per_coordinate" else [STRENGTH] * len(neuron.document["positions"])
+    scaled = [dose * strength_multiplier for dose in doses]
+    if any(abs(dose) > 100 for dose in scaled):
+        raise gr.Error("Resulting strength exceeds 100. Reduce the strength multiplier.")
+    active = Neuron({**neuron.document, "positions": [
+        {**position, "strength": dose}
+        for position, dose in zip(neuron.document["positions"], scaled)
+    ]})
+    options = dict(max_new_tokens=int(max_tokens), enable_thinking=ENABLE_THINKING,
+                   max_input_tokens=MAX_INPUT_TOKENS, do_sample=temperature > 0)
+    if temperature > 0:
+        options.update(temperature=temperature, top_p=0.9)
+    try:
+        with generation_lock, model.steer(active, operation=OPERATION,
+                                          allow_approximate=ALLOW_APPROXIMATE):
+            return model.generate(messages, **options)
+    except ValueError as error:
+        raise gr.Error(str(error)) from error
+
+
+with gr.Blocks() as demo:
+    gr.Markdown("# NeuralHub · Steered chat")
+    gr.Markdown(f"Recipe: `{REPOSITORY}` · r{REVISION} · `{OPERATION}` · saved strength: `{STRENGTH}`. "
+                "Every reply uses steering. Strength changes apply to future replies; start a new chat for a fresh experiment.")
+    gr.Markdown("Experimental raw activation doses; the source effect has not been verified. "
+                "The model runs on your Colab runtime. This temporary Gradio link can be used by anyone who has the link while the runtime is active.")
+    with gr.Row():
+        strength_control = gr.Slider(-2, 2, value=1, step=0.1, label="Strength multiplier (1 = recipe default)")
+        temperature_control = gr.Slider(0, 1.5, value=0.7, step=0.05, label="Temperature (0 = deterministic)")
+        length_control = gr.Slider(64, 1024, value=MAX_NEW_TOKENS, step=64, label="Max new tokens")
+    gr.ChatInterface(fn=chat,
+                     additional_inputs=[strength_control, temperature_control, length_control],
+                     concurrency_limit=1)
+
+# Colab requires a temporary tunnel to display the interactive chat.
+demo.queue(default_concurrency_limit=1).launch(share=True, inline=True, show_error=True)
 '''
 
 
@@ -138,16 +205,18 @@ def notebook(document, base_url):
         "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
                      "accelerator": "GPU", "colab": {"name": document["id"].replace("/", "-") + ".ipynb"}},
         "cells": [
-            cell("markdown", "# NeuralHub experiment: " + document["id"] + "\n"
+            cell("markdown", "# NeuralHub chat playground: " + document["id"] + "\n"
                  "Select **Runtime > Change runtime type > T4 GPU**, then run the cells in order. "
-                 "Settings are prefilled and editable. T4 automatically uses FP16; GPUs with native BF16 use BF16. "
+                 "The last cell opens a chat with steering applied to every reply; conversation history is preserved. "
+                 "Thinking is disabled by default for templates that support it. Settings are prefilled and editable. "
+                 "T4 automatically uses FP16; GPUs with native BF16 use BF16. "
                  "The full unquantized model must fit in memory; larger or MoE models may not fit T4. Restricted checkpoints need Hugging Face login.\n\n"
                  "**Experimental defaults, not verified reproduction:** the current model branch is resolved to an exact commit once per session and printed. "
                  "The default operation is raw activation addition. Saved doses are shown below, but source methods may use different normalization units "
                  "(including the neuron-explorer residual-norm unit); this SDK uses absolute activation operands. Confirm the original method before interpreting effects."
                  + notes),
-            cell("code", "%pip install " + shlex.quote(install)),
+            cell("code", "%pip install " + shlex.quote(install) + " 'gradio>=6,<7'"),
             cell("code", experiment(document, base_url)),
-            cell("code", "results = compare()"),
+            cell("code", playground()),
         ],
     }
