@@ -1,4 +1,4 @@
-# NeuralHub SDK (0.4.0)
+# NeuralHub SDK (0.5.0)
 
 Anonymous neuron downloads and local inference. This is an initial source release;
 no PyPI package has been published. Install from this checkout:
@@ -130,18 +130,16 @@ public GitHub notebooks under `walnut-computing/neuralhub-notebooks/notebooks/`;
 referenced Git branch before the links work. New or unexported revisions remain
 available through the download API and can be uploaded to Colab manually.
 
-Set `MODEL_REVISION` to an exact 40-character Hugging Face checkpoint commit and
-explicitly choose `OPERATION`. Supply `STRENGTH` when the recipe lacks doses;
-approximate coordinates require opt-in. The notebook installs this inference SDK
-from the Hub source archive (no private GitHub access needed) and opens a Gradio chat playground. Every reply uses steering and retains the conversation history.
-Full unquantized model weights must fit in memory. There is no MCP server or separate
-Python script download in this feature.
+The notebook delegates model loading, source calibration and validation to
+`neuralhub.playground`. It installs the SDK from the public Hub source archive and
+opens a chat UI; no private repository access is needed. Full unquantized weights
+must fit in memory. See the source-method support matrix below.
 
 ## Collected evidence and notebooks
 
 `HubClient.neuron()` and `Neuron.from_hub()` accept both `neuralhub/v1`
 recipes and `neuralhub/evidence-v1` records. Downloading evidence does not make
-its source dose an absolute activation value. Before loading or steering:
+its source dose an absolute activation value. For a manual absolute-activation experiment (the source playground handles its own calibration):
 
 ```python
 evidence = Neuron.from_hub("atlas/collected-example", base_url=HUB_URL, revision=2)
@@ -161,41 +159,67 @@ not silently converted into Transformers MLP interventions. This is an explicit
 local experiment, not a reproduction guarantee. Model architecture, bounds,
 expert IDs, finite doses and approximation checks still apply at execution.
 
-Generated notebooks install SDK 0.4.0 from the Hub's `/api/sdk/source.zip` endpoint,
-which serves only package metadata, README and Python package source. This avoids
-installing the older public Git snapshot that cannot read evidence records.
+### Source-method chat playground
 
-Notebook settings are prefilled. `MODEL_REVISION="main"` resolves to an exact model
-commit once per session and prints it; an exact SHA can still be supplied manually.
-`OPERATION="add"` is an exploratory raw activation intervention, not a claim about
-the discovery method. Uniform saved strengths are shown as a scalar; mixed strengths
-use an editable per-coordinate list. Only missing doses default to experimental +1.0.
-Approximate-coordinate use is explicitly shown and prefilled for those recipes.
-Automatic dtype selects FP16 on T4, native BF16 on supported GPUs, and FP32 when CPU
-execution is explicitly selected. The default requires a CUDA GPU before downloading.
+```python
+from neuralhub import playground
+playground("atlas/collected-c0094-evil-qwen-qwen35-4b", revision=2)
+```
 
-Source methods may normalize doses (e.g. neuron-explorer's residual-norm unit); SDK
-strengths are absolute operands. Defaults do not establish reproduction of the source
-effect. Full unquantized weights must fit in memory. The notebook installs the SDK
-from the Hub source archive; PyPI publication remains deferred.
+Every notebook has three code cells: install, select the pinned neuron, launch.
+The SDK resolves the model commit, loads once, calibrates on the clean model and
+applies the source method on each chat turn. Strength, steering on/off, temperature
+and response length live in the chat UI. The expandable diagnostics show the model
+commit, original doses, calibration medians, column norms and resolved operands.
+There is no comparison helper or duplicated coordinate/configuration code.
 
+`source_catalog.json` is the reviewed method registry, bound to the repository,
+model and exact coordinates/doses. Changing a card invalidates that binding.
+The Hub includes its method/status under `steering` in `neuron.json`; the SDK uses
+its bundled reviewed registry, never executable instructions from card prose.
+All 299 current cards have a decision: 119 source ports and 180 unavailable.
+Unavailable cards explain the missing source information before loading weights.
+They never receive a guessed +1 dose or default raw-add operation.
 
-### Steered chat playground
+Implemented profiles:
 
-Run the notebook cells in order after selecting a GPU. The final cell loads the model
-once and opens a chat. Adjust the strength multiplier, temperature and output token
-limit without downloading the model again. All replies use steering; changing strength
-affects future replies. Start a new chat to compare settings without previous context.
-The multiplier scales the absolute operands for `add`, `scale` and `set`; zero is not
-a universal baseline switch.
+| Source | Operation and calibration |
+| --- | --- |
+| Neuron Studio / Evil Qwen | Add at down-projection input. Fixed river passage without special tokens; midpoint median of layer-output residual norms, excluding the first token. |
+| Lyra / metrovoc Qwen3.5 | Add at down-projection input. Documented reference-text fallback, lower median, excluding the first token. Original saved corpus statistics are not bundled. |
+| Martin Bowling audit / Hedwig | Add a vector after down projection. Six unsteered greedy answers, 100 tokens, repetition penalty 1.05; upper median of residual norms on prompt + answer, excluding the first token. |
+| Neuron Lab | Add at down-projection input. Source calibration questions as chat prompts; lower median, excluding the first token. |
+| Alien multiplier | Native activation ×2; no residual normalization. |
+| Qwen3 mechanistic experiments | Raw source-selected offsets (+32 or +64); skip the first prompt token, edit subsequent prompt/decode tokens. Source model commit is pinned. |
+| Qwen3 refusal-neuron constant mode | Set the activation to the source constant at every prompt/decode token; no residual normalization. Anchor mode is a distinct experiment. |
 
-Thinking defaults to off for model templates supporting `enable_thinking=False`.
-Replies default to sampling at temperature 0.7 and up to 512 new tokens. Conversation
-input is limited to 4096 tokens; exceeding it prompts the user to start a new chat,
-rather than silently dropping messages. Base models without a chat template use a
-plain role-labelled transcript and may follow chat instructions less reliably.
+Normalized additions use `source_dose * median_layer_residual_norm / column_L2`.
+Column norms and residuals are computed from the actually loaded checkpoint.
+There is no clipping to the old raw-operand ±100 limit. Invalid/zero/nonfinite norms
+and dtype overflow fail explicitly. Calibration runs without steering, is reused for
+the session, and removes hooks even on failure.
 
-Colab uses a temporary Gradio share link, accessible to anyone with the link while
-the runtime is active. Model execution stays in the Colab runtime. Calls are serialized
-and steering hooks are removed on both success and failure. `compare()` remains
-available manually for deterministic baseline/steered comparison.
+Flash source recipes use unconditional control vectors at the MLP output before
+hyper-connection injection, not router-weighted expert activation edits. Their
+Strata calibration/backend is unavailable here, so those notebooks explain the
+limitation. Poor Things campaign calibration artifacts, unspecified OLMo/Gemma
+methods, missing doses and ambiguous social-post methods likewise remain unavailable.
+This is intentional: declaring them runnable with unrelated units would be incorrect.
+
+Source ports preserve the reviewed operation, formula, token scope and calibration
+procedure where available. They do **not** establish behavioral reproduction or
+bitwise agreement with the source MLX/GGUF engine. The UI discloses backend differences
+and use of reference fallback statistics. Actual full-checkpoint GPU behavioral
+validation has not been performed for this release.
+
+The default strength is 1 (source dose). For multiplication the UI interpolates
+around identity: `factor = 1 + (source_factor - 1) * strength`. For add/set it scales
+the source operand. Use the separate steering toggle for an unsteered reply.
+Generation is greedy by default, thinking is off, and the default output limit is
+256 tokens. Conversations over 4096 input tokens ask for a new chat. Calls sharing
+the model are serialized; hooks are removed on success and failure.
+
+Notebooks install SDK 0.5.0 from the Hub source archive, including its reviewed JSON
+registry. PyPI publication remains deferred. T4 uses FP16; GPUs with native BF16 use
+BF16. Full unquantized weights must fit in memory; large models require larger GPUs.
+Colab share links are accessible to anyone with the link while the runtime is active.
