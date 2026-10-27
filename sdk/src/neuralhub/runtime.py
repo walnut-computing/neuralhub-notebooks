@@ -28,6 +28,42 @@ class Neuron:
             )
         )
 
+    def prepare(self, *, model_repo=None, positions=None, strength=None):
+        """Convert evidence into an explicit absolute-activation experiment.
+
+        Never interpret source doses as native activation units. The caller must
+        supply a calibrated absolute operand (or positions with explicit doses).
+        The original evidence is retained without modification.
+        """
+        from copy import deepcopy
+        document = deepcopy(self.document)
+        HubClient.validate(document, document.get("id"), document.get("revision"))
+        if model_repo is not None:
+            document["model"]["huggingface"] = model_repo
+        if positions is not None:
+            document["positions"] = deepcopy(positions)
+        if not document["model"].get("huggingface"):
+            raise ValueError("Set MODEL_REPO to the exact source checkpoint repository")
+        if not document["positions"]:
+            raise ValueError("Set POSITIONS to verified zero-based source coordinates")
+        if self.document.get("format") == "neuralhub/evidence-v1":
+            if strength is None and positions is None:
+                raise ValueError("Set STRENGTH in absolute activation units; source doses may use different normalization")
+            document["sourceEvidence"] = deepcopy(self.document)
+            document["format"] = "neuralhub/v1"
+        if not isinstance(document["positions"], list) or not all(isinstance(p, dict) for p in document["positions"]):
+            raise ValueError("POSITIONS must be a list of coordinate dictionaries")
+        for position in document["positions"]:
+            if strength is not None:
+                position["strength"] = strength
+            layer, index = position.get("layer"), position.get("neuron")
+            if type(layer) is not int or type(index) is not int or min(layer, index) < 0:
+                raise ValueError("Coordinates must be non-negative zero-based integers")
+            value = position.get("strength")
+            if type(value) not in (int, float) or not math.isfinite(value) or abs(value) > 100:
+                raise ValueError("Specify a finite absolute strength between -100 and 100; recipe may lack a dose")
+        return Neuron(document)
+
 
 SUPPORTED = {"qwen3", "llama", "olmo3", "qwen3_5_text", "qwen4_exp_text", "gemma4_text"}
 CONDITIONAL = {
@@ -113,6 +149,8 @@ def steer(
         raise ValueError("operation must be add, scale or set")
     if site != "mlp.down_proj.input":
         raise ValueError("Only mlp.down_proj.input is supported")
+    if neuron.document.get("format") == "neuralhub/evidence-v1":
+        raise ValueError("Call Neuron.prepare with explicit absolute activation settings before steering evidence")
     layers = decoder(model).layers
     if hasattr(model, "_orig_mod"):
         raise ValueError("Compiled models are not supported in this version")
@@ -218,6 +256,8 @@ class Model:
     @classmethod
     def from_neuron(cls, neuron, *, model_revision, device="auto", **kwargs):
         """Caller must explicitly choose a checkpoint; legacy recipes do not pin one."""
+        if neuron.document.get("format") == "neuralhub/evidence-v1":
+            raise ValueError("Call Neuron.prepare before loading a model for evidence")
         try:
             import transformers
             from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
