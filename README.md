@@ -12,8 +12,16 @@ recipe revision. Model weights are downloaded only when you run the experiment.
 ## Run
 
 Open a notebook under `notebooks/<owner>/<neuron>/r<revision>.ipynb` in Colab.
-Choose a GPU runtime and set `MODEL_REVISION` to an exact Hugging Face model commit,
-then choose `OPERATION` and any missing `STRENGTH`. Review the discovery method first.
+Choose a GPU runtime and run the cells in order. Settings are prefilled and editable.
+`MODEL_REVISION="main"` resolves to an exact Hugging Face commit once per session and
+prints it. T4 uses FP16 automatically; supported GPUs use native BF16. The default
+operation is experimental raw `add`. Saved doses are displayed and preserved; mixed
+doses use an editable per-coordinate list, and only missing doses default to experimental
++1.0. Approximate coordinates are clearly flagged and used as listed.
+
+Source methods may normalize their doses (e.g. neuron-explorer residual-norm units);
+the SDK uses absolute activation operands. Review this difference before interpreting
+the result as a reproduction.
 The notebook compares baseline and steered output for the same prompt.
 
 The full unquantized model must fit in memory. Free Colab hardware may be insufficient,
