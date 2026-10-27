@@ -12,17 +12,16 @@ recipe revision. Model weights are downloaded only when you run the experiment.
 ## Run
 
 Open a notebook under `notebooks/<owner>/<neuron>/r<revision>.ipynb` in Colab.
-Choose a GPU runtime and run the cells in order. Settings are prefilled and editable.
-`MODEL_REVISION="main"` resolves to an exact Hugging Face commit once per session and
-prints it. T4 uses FP16 automatically; supported GPUs use native BF16. The default
-operation is experimental raw `add`. Saved doses are displayed and preserved; mixed
-doses use an editable per-coordinate list, and only missing doses default to experimental
-+1.0. Approximate coordinates are clearly flagged and used as listed.
+Choose a GPU runtime and run **install → select neuron → launch playground**.
+The SDK loads the model once, resolves the source operation and calibrates normalized
+doses before opening chat. Adjust strength, steering on/off, temperature and response
+length in the UI. Expand diagnostics to see the checkpoint, source doses and calibration.
 
-Source methods may normalize their doses (e.g. neuron-explorer residual-norm units);
-the SDK uses absolute activation operands. Review this difference before interpreting
-the result as a reproduction.
-The last cell opens a Gradio chat playground. Every reply uses steering and retains conversation history. Adjust the strength multiplier, temperature, and output length in the UI. Thinking is disabled by default for templates that support it. The model is loaded once per chat launch. Use Clear to start a fresh conversation.
+All 299 notebooks use this flow. 119 recipes have source-method ports; 180 explain
+missing source settings/backend support and stop before downloading model weights.
+There is no guessed +1 strength or blanket raw-add fallback. Source MLX/GGUF engines
+and quantization differ from this Transformers runtime; effects are not independently
+reproduced. See [the source-method matrix](sdk/README.md#source-method-chat-playground).
 
 The full unquantized model must fit in memory. Free Colab hardware may be insufficient,
 especially for MoE models. Restricted checkpoints require Hugging Face access.
@@ -30,7 +29,7 @@ Reported effects are experimental and are not a guarantee of reproduction.
 
 ## SDK
 
-The notebook installs SDK 0.4.0 from the Hub's `/api/sdk/source.zip` endpoint (deploy SDK 0.4.0 before publishing these notebooks). Colab uses a temporary Gradio share link, accessible to anyone with the link while the runtime is active.
+The notebook installs SDK 0.5.0 from the Hub's `/api/sdk/source.zip` endpoint (deploy SDK 0.5.0 before publishing these notebooks). Colab uses a temporary Gradio share link, accessible to anyone with the link while the runtime is active.
 It does not require access to a private application repository. To install locally:
 
 ```sh

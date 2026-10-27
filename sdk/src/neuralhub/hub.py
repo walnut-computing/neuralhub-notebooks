@@ -65,7 +65,7 @@ class HubClient:
             and time.time() - float(cached["saved_at"]) < self.ttl
         ):
             return cached["document"]
-        headers = {"Accept": "application/json", "User-Agent": "neuralhub-sdk/0.4.0"}
+        headers = {"Accept": "application/json", "User-Agent": "neuralhub-sdk/0.5.0"}
         if cached and cached.get("etag"):
             headers["If-None-Match"] = cached["etag"]
         for attempt in range(self.retries + 1):
