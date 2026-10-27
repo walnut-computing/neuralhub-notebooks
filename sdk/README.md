@@ -1,4 +1,4 @@
-# NeuralHub SDK (0.3.0)
+# NeuralHub SDK (0.4.0)
 
 Anonymous neuron downloads and local inference. This is an initial source release;
 no PyPI package has been published. Install from this checkout:
@@ -133,7 +133,7 @@ available through the download API and can be uploaded to Colab manually.
 Set `MODEL_REVISION` to an exact 40-character Hugging Face checkpoint commit and
 explicitly choose `OPERATION`. Supply `STRENGTH` when the recipe lacks doses;
 approximate coordinates require opt-in. The notebook installs this inference SDK
-from the Hub source archive (no private GitHub access needed) and compares baseline and steered output for the same prompt.
+from the Hub source archive (no private GitHub access needed) and opens a Gradio chat playground. Every reply uses steering and retains the conversation history.
 Full unquantized model weights must fit in memory. There is no MCP server or separate
 Python script download in this feature.
 
@@ -161,7 +161,7 @@ not silently converted into Transformers MLP interventions. This is an explicit
 local experiment, not a reproduction guarantee. Model architecture, bounds,
 expert IDs, finite doses and approximation checks still apply at execution.
 
-Generated notebooks install SDK 0.3.0 from the Hub's `/api/sdk/source.zip` endpoint,
+Generated notebooks install SDK 0.4.0 from the Hub's `/api/sdk/source.zip` endpoint,
 which serves only package metadata, README and Python package source. This avoids
 installing the older public Git snapshot that cannot read evidence records.
 
@@ -177,4 +177,25 @@ execution is explicitly selected. The default requires a CUDA GPU before downloa
 Source methods may normalize doses (e.g. neuron-explorer's residual-norm unit); SDK
 strengths are absolute operands. Defaults do not establish reproduction of the source
 effect. Full unquantized weights must fit in memory. The notebook installs the SDK
-from a fixed commit in the public repository; PyPI publication remains deferred.
+from the Hub source archive; PyPI publication remains deferred.
+
+
+### Steered chat playground
+
+Run the notebook cells in order after selecting a GPU. The final cell loads the model
+once and opens a chat. Adjust the strength multiplier, temperature and output token
+limit without downloading the model again. All replies use steering; changing strength
+affects future replies. Start a new chat to compare settings without previous context.
+The multiplier scales the absolute operands for `add`, `scale` and `set`; zero is not
+a universal baseline switch.
+
+Thinking defaults to off for model templates supporting `enable_thinking=False`.
+Replies default to sampling at temperature 0.7 and up to 512 new tokens. Conversation
+input is limited to 4096 tokens; exceeding it prompts the user to start a new chat,
+rather than silently dropping messages. Base models without a chat template use a
+plain role-labelled transcript and may follow chat instructions less reliably.
+
+Colab uses a temporary Gradio share link, accessible to anyone with the link while
+the runtime is active. Model execution stays in the Colab runtime. Calls are serialized
+and steering hooks are removed on both success and failure. `compare()` remains
+available manually for deterministic baseline/steered comparison.
